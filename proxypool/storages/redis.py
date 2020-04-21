@@ -1,8 +1,7 @@
 import redis
 from proxypool.exceptions import PoolEmptyException
 from proxypool.schemas.proxy import Proxy
-from proxypool.setting import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_KEY, PROXY_SCORE_MAX, PROXY_SCORE_MIN, \
-    PROXY_SCORE_INIT
+from proxypool.setting import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, DB, REDIS_KEY, PROXY_SCORE_MAX, PROXY_SCORE_MIN, PROXY_SCORE_INIT
 from random import choice
 from typing import List
 from loguru import logger
@@ -18,21 +17,21 @@ class RedisClient(object):
     redis connection client of proxypool
     """
     
-    def __init__(self, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, **kwargs):
+    def __init__(self, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, db=DB, **kwargs):
         """
-        init redis client
-        :param host: redis host
-        :param port: redis port
-        :param password: redis password
+        初始化
+        :param host: Redis 地址
+        :param port: Redis 端口
+        :param password: Redis 密码
         """
-        self.db = redis.StrictRedis(host=host, port=port, password=password, decode_responses=True, **kwargs)
+        self.db = redis.StrictRedis(host=host, port=port, password=password, db=DB, decode_responses=True, **kwargs)
     
-    def add(self, proxy: Proxy, score=PROXY_SCORE_INIT) -> int:
+    def add(self, proxy: Proxy, score=PROXY_SCORE_INIT):
         """
-        add proxy and set it to init score
-        :param proxy: proxy, ip:port, like 8.8.8.8:88
-        :param score: int score
-        :return: result
+        添加代理，设置分数为最高
+        :param proxy: 代理
+        :param score: 分数
+        :return: 添加结果
         """
         if not is_valid_proxy(f'{proxy.host}:{proxy.port}'):
             logger.info(f'invalid proxy {proxy}, throw it')
@@ -44,11 +43,8 @@ class RedisClient(object):
     
     def random(self) -> Proxy:
         """
-        get random proxy
-        firstly try to get proxy with max score
-        if not exists, try to get proxy by rank
-        if not exists, raise error
-        :return: proxy, like 8.8.8.8:8
+        随机获取有效代理，首先尝试获取最高分数代理，如果不存在，按照排名获取，否则异常
+        :return: 随机代理
         """
         # try to get proxy with max score
         proxies = self.db.zrangebyscore(REDIS_KEY, PROXY_SCORE_MAX, PROXY_SCORE_MAX)
@@ -63,9 +59,9 @@ class RedisClient(object):
     
     def decrease(self, proxy: Proxy) -> int:
         """
-        decrease score of proxy, if small than PROXY_SCORE_MIN, delete it
-        :param proxy: proxy
-        :return: new score
+        代理值减一分，小于最小值则删除
+        :param proxy: 代理
+        :return: 修改后的代理分数
         """
         score = self.db.zscore(REDIS_KEY, proxy.string())
         # current score is larger than PROXY_SCORE_MIN
@@ -81,17 +77,17 @@ class RedisClient(object):
     
     def exists(self, proxy: Proxy) -> bool:
         """
-        if proxy exists
-        :param proxy: proxy
-        :return: if exists, bool
+        判断是否存在
+        :param proxy: 代理
+        :return: 是否存在
         """
         return not self.db.zscore(REDIS_KEY, proxy.string()) is None
     
     def max(self, proxy: Proxy) -> int:
         """
-        set proxy to max score
-        :param proxy: proxy
-        :return: new score
+        将代理设置为 MAX_SCORE
+        :param proxy: 代理
+        :return: 设置结果
         """
         logger.info(f'{proxy.string()} is valid, set to {PROXY_SCORE_MAX}')
         if IS_REDIS_VERSION_2:
@@ -100,15 +96,15 @@ class RedisClient(object):
     
     def count(self) -> int:
         """
-        get count of proxies
-        :return: count, int
+        获取数量
+        :return: 数量
         """
         return self.db.zcard(REDIS_KEY)
     
     def all(self) -> List[Proxy]:
         """
-        get all proxies
-        :return: list of proxies
+        获取全部代理
+        :return: 全部代理列表
         """
         return convert_proxy_or_proxies(self.db.zrangebyscore(REDIS_KEY, PROXY_SCORE_MIN, PROXY_SCORE_MAX))
     
